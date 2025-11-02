@@ -1,0 +1,161 @@
+import java.sql.*;
+import java.util.Scanner;
+
+public class HotelBookingSystem {
+
+    // Database connection info
+    private static final String URL = "jdbc:mysql://localhost:3306/hotel_booking_db";
+    private static final String USER = "root";     // change if needed
+    private static final String PASSWORD = "root"; // change to your MySQL password
+
+    public static void main(String[] args) {
+        try {
+            // Load MySQL JDBC Driver
+            Class.forName("com.mysql.cj.jdbc.Driver");
+
+            // Connect to database
+            Connection conn = DriverManager.getConnection(URL, USER, PASSWORD);
+            System.out.println("✅ Database Connected Successfully!");
+
+            Scanner sc = new Scanner(System.in);
+            int choice;
+
+            do {
+                System.out.println("\n=== HOTEL BOOKING SYSTEM ===");
+                System.out.println("1. View Hotels");
+                System.out.println("2. View Available Rooms");
+                System.out.println("3. Book a Room");
+                System.out.println("4. View Reservations");
+                System.out.println("5. Exit");
+                System.out.print("Enter your choice: ");
+                choice = sc.nextInt();
+                sc.nextLine(); // consume newline
+
+                switch (choice) {
+                    case 1 -> viewHotels(conn);
+                    case 2 -> viewAvailableRooms(conn);
+                    case 3 -> bookRoom(conn, sc);
+                    case 4 -> viewReservations(conn);
+                    case 5 -> System.out.println("Exiting... Thank you!");
+                    default -> System.out.println("Invalid choice. Try again.");
+                }
+            } while (choice != 5);
+
+            conn.close();
+            sc.close();
+        } catch (ClassNotFoundException e) {
+            System.out.println("❌ MySQL JDBC Driver not found. Add the Connector JAR file.");
+        } catch (SQLException e) {
+            System.out.println("❌ Database connection failed. Check URL, username, or password.");
+            e.printStackTrace();
+        }
+    }
+
+    // 1️⃣ View all hotels
+    private static void viewHotels(Connection conn) throws SQLException {
+        String query = "SELECT * FROM hotels";
+        Statement st = conn.createStatement();
+        ResultSet rs = st.executeQuery(query);
+
+        System.out.println("\n--- List of Hotels ---");
+        while (rs.next()) {
+            System.out.printf("ID: %d | Name: %s | Location: %s | Rating: %.1f%n",
+                    rs.getInt("hotel_id"),
+                    rs.getString("hotel_name"),
+                    rs.getString("location"),
+                    rs.getDouble("rating"));
+        }
+    }
+
+    // 2️⃣ View available rooms
+    private static void viewAvailableRooms(Connection conn) throws SQLException {
+        String query = """
+                SELECT r.room_id, h.hotel_name, r.room_type, r.price_per_night
+                FROM rooms r
+                JOIN hotels h ON r.hotel_id = h.hotel_id
+                WHERE r.is_available = TRUE
+                """;
+        Statement st = conn.createStatement();
+        ResultSet rs = st.executeQuery(query);
+
+        System.out.println("\n--- Available Rooms ---");
+        while (rs.next()) {
+            System.out.printf("Room ID: %d | Hotel: %s | Type: %s | Price: %.2f%n",
+                    rs.getInt("room_id"),
+                    rs.getString("hotel_name"),
+                    rs.getString("room_type"),
+                    rs.getDouble("price_per_night"));
+        }
+    }
+
+    // 3️⃣ Book a room
+    private static void bookRoom(Connection conn, Scanner sc) throws SQLException {
+        System.out.print("Enter Hotel ID: ");
+        int hotelId = sc.nextInt();
+        System.out.print("Enter Room ID: ");
+        int roomId = sc.nextInt();
+        sc.nextLine();
+        System.out.print("Enter Your Name: ");
+        String customerName = sc.nextLine();
+        System.out.print("Enter Check-in Date (YYYY-MM-DD): ");
+        String checkIn = sc.nextLine();
+        System.out.print("Enter Check-out Date (YYYY-MM-DD): ");
+        String checkOut = sc.nextLine();
+
+        // Check room availability
+        PreparedStatement checkStmt = conn.prepareStatement(
+                "SELECT price_per_night FROM rooms WHERE room_id = ? AND is_available = TRUE");
+        checkStmt.setInt(1, roomId);
+        ResultSet rs = checkStmt.executeQuery();
+
+        if (rs.next()) {
+            double price = rs.getDouble("price_per_night");
+
+            // Insert reservation
+            PreparedStatement insertStmt = conn.prepareStatement(
+                    "INSERT INTO reservations (hotel_id, room_id, customer_name, check_in, check_out, total_price) VALUES (?, ?, ?, ?, ?, ?)");
+            insertStmt.setInt(1, hotelId);
+            insertStmt.setInt(2, roomId);
+            insertStmt.setString(3, customerName);
+            insertStmt.setDate(4, Date.valueOf(checkIn));
+            insertStmt.setDate(5, Date.valueOf(checkOut));
+            insertStmt.setDouble(6, price);
+            insertStmt.executeUpdate();
+
+            // Update room availability
+            PreparedStatement updateStmt = conn.prepareStatement(
+                    "UPDATE rooms SET is_available = FALSE WHERE room_id = ?");
+            updateStmt.setInt(1, roomId);
+            updateStmt.executeUpdate();
+
+            System.out.println("✅ Room booked successfully for " + customerName + "!");
+        } else {
+            System.out.println("❌ Room not available or invalid Room ID!");
+        }
+    }
+
+    // 4️⃣ View reservations
+    private static void viewReservations(Connection conn) throws SQLException {
+        String query = """
+                SELECT r.reservation_id, h.hotel_name, rm.room_type, r.customer_name,
+                       r.check_in, r.check_out, r.total_price
+                FROM reservations r
+                JOIN hotels h ON r.hotel_id = h.hotel_id
+                JOIN rooms rm ON r.room_id = rm.room_id
+                """;
+        Statement st = conn.createStatement();
+        ResultSet rs = st.executeQuery(query);
+
+        System.out.println("\n--- All Reservations ---");
+        while (rs.next()) {
+            System.out.printf("ResID: %d | Hotel: %s | Room: %s | Name: %s | Check-in: %s | Check-out: %s | Price: %.2f%n",
+                    rs.getInt("reservation_id"),
+                    rs.getString("hotel_name"),
+                    rs.getString("room_type"),
+                    rs.getString("customer_name"),
+                    rs.getDate("check_in"),
+                    rs.getDate("check_out"),
+                    rs.getDouble("total_price"));
+        }
+    }
+}
